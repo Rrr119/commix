@@ -29,6 +29,7 @@ from src.core.requests import parameters
 from src.core.modules import modules_handler
 from src.core.requests import authentication
 from src.core.controller import checks
+from src.core.controller import detection
 from src.thirdparty.six.moves import urllib as _urllib
 from src.core.techniques.time_based import tb_handler
 from src.core.techniques.oob import oob_handler
@@ -59,6 +60,9 @@ def basic_payload_generator():
   marker5 = ''.join(random.choice(string.ascii_uppercase) for _ in range(6))
   marker6 = ''.join(random.choice(string.ascii_uppercase) for _ in range(6))
   marker7 = ''.join(random.choice(string.ascii_uppercase) for _ in range(6))
+  # The value the control asks for instead. It never appears in a payload that can compute the
+  # real answer, so an answer carrying it is either the control echoing back or a different result.
+  marker8 = ''.join(random.choice(string.ascii_uppercase) for _ in range(6))
 
   suffix = ""
   if checks.using_backticks():
@@ -74,12 +78,14 @@ def basic_payload_generator():
     # '--skip-calc' covers the detection phase, and the heuristic is part of it - so what the target
     # has to print back between the markers is a marker it had to run a command to produce.
     expected = marker3
+    control_expected = marker8
     settings.BASIC_STRING = checks.print_marker(marker3)
     # Run through 'cmd /c', since a bare 'echo' is a command a Unix shell runs too and would answer for it.
     windows_proof = "cmd /c echo " + marker3
     alter_interpreter_basic_string = " -c \"print('" + marker3 + "')\""
   else:
     expected = str(rand_a + rand_b)
+    control_expected = str(rand_a + rand_b + 1)
     settings.BASIC_STRING = prefix + calc_string + suffix
     windows_proof = "set /a " + settings.BASIC_STRING
     alter_interpreter_basic_string = " -c \"print(int(" + calc_string + "))\""
@@ -123,6 +129,9 @@ def basic_payload_generator():
   settings.BASIC_COMMAND_INJECTION_RESULTS = {"echo": "|".join(_answer(pair) for pair, as_echo in zip(pairs, echoed) if as_echo),
                                               "printf": "|".join(_answer(pair) for pair, as_echo in zip(pairs, echoed) if not as_echo)}
   settings.BASIC_COMMAND_INJECTION_RESULT = "|".join(_answer(pair) for pair in pairs)
+  settings.BASIC_COMMAND_INJECTION_MARKERS = [pair[0] + expected + pair[1] for pair in pairs]
+  settings.BASIC_COMMAND_INJECTION_EXPECTED = expected
+  settings.BASIC_COMMAND_INJECTION_CONTROL_EXPECTED = control_expected
 
 """
 Initializing basic level check status
@@ -313,6 +322,7 @@ def probe_skip_testable_value_early(url, http_request_method, check_parameter, p
     response, _ = heuristic_request(url, http_request_method, check_parameter, payload, whitespace, place)
     if type(response) is not bool and response is not None:
       html_data = checks.process_page_content(response, action="decode")
+      html_data = checks.remove_reflected_values(html_data, payload)
       answered = bool(re.search(settings.BASIC_COMMAND_INJECTION_RESULT, html_data))
   except Exception:
     answered = False
@@ -329,6 +339,129 @@ def probe_skip_testable_value_early(url, http_request_method, check_parameter, p
     debug_msg = "The parameter's own value is not required to reach the sink, so it is skipped for faster requests."
     settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
   return url
+
+"""
+How many times one heuristic question is asked before its answer is believed.
+
+'--retries' is the run's own budget for an answer it did not get, and the same count is used here:
+a dropped request is not a "no", and a page that answered late is no more evidence than no page.
+"""
+def heuristic_detection_attempts():
+  try:
+    attempts = int(menu.options.retries)
+  except (TypeError, ValueError):
+    attempts = settings.FALSE_POSITIVE_RETRIES
+  return max(1, attempts)
+
+"""
+Read one heuristic answer, with the payload's own reflection taken back out of it.
+
+The marker pair is part of the payload, so a page that echoes the request contains it as surely as
+a page where the command ran does. Removing the reflected payload first leaves the marker only
+where the target itself wrote it.
+"""
+def heuristic_answer(url, http_request_method, check_parameter, payload, whitespace, place):
+  response, url = heuristic_request(url, http_request_method, check_parameter, payload, whitespace, place)
+  if type(response) is bool or response is None:
+    return None, url
+  try:
+    page = checks.process_page_content(response, action="decode")
+  except (KeyboardInterrupt, SystemExit):
+    raise
+  except Exception:
+    return None, url
+  return checks.remove_reflected_values(page, payload), url
+
+"""
+The same question with an answer the command cannot have produced.
+
+The control differs from the payload only in the value between the markers. A page that reflects the
+request answers both alike; a command that ran answers only the real one with the real value.
+"""
+def heuristic_control_payload(payload):
+  expected = settings.BASIC_COMMAND_INJECTION_EXPECTED
+  control_expected = settings.BASIC_COMMAND_INJECTION_CONTROL_EXPECTED
+  if not expected or not control_expected or expected not in payload:
+    return None
+  return payload.replace(expected, control_expected)
+
+"""
+Whether a response carries the markers at all, which is what makes a control request worth sending.
+"""
+def carries_result_marker(page):
+  return bool(page) and any(marker in page for marker in settings.BASIC_COMMAND_INJECTION_MARKERS)
+
+"""
+Time a request from before it leaves to after its answer has been read.
+
+Reading the body is part of the answer: a target that writes its page only after the command has run
+holds back the bytes as well as the headers, and stopping the clock at the headers would miss it.
+"""
+def timed_heuristic_answer(url, http_request_method, check_parameter, payload, whitespace, place):
+  start = time.time()
+  response, url = heuristic_request(url, http_request_method, check_parameter, payload, whitespace, place)
+  if type(response) is bool or response is None:
+    return None, url
+  try:
+    checks.process_page_content(response, action="decode")
+  except (KeyboardInterrupt, SystemExit):
+    raise
+  except Exception:
+    return None, url
+  return time.time() - start, url
+
+"""
+Confirm a blind point by sending one payload that waits and one that does not.
+
+The condition payloads are the time-based technique's own, so the delay asked for here is written
+in the shell under test rather than in a syntax this heuristic made up. Each separator the direct
+heuristic carried is tried, and the first one that reproduces a delay across the paired answers is
+enough - the point has been proved, and the technique that follows can settle the rest.
+"""
+def time_based_heuristic_basic(url, http_request_method, check_parameter, payload, whitespace, place, shell_os):
+  if not checks.technique_selected("t"):
+    return False
+
+  delay = int(menu.options.timesec or settings.MIN_SAFE_TIMESEC)
+  delay = max(1, min(delay, getattr(settings, "DETECTION_TIME_BLIND_DELAY", 3)))
+  attempts = max(settings.DETECTION_TIME_BLIND_HITS, heuristic_detection_attempts())
+  # This heuristic asks about a shell, whatever '--eval' may have been given: that option names a
+  # second sink to test, not the syntax this probe's separators are written in.
+  from src.core.techniques.time_based import tb_payloads as payloads
+  separators = []
+  for separator in (";", settings.END_LINE.LF, "&", "&&", "|", "||"):
+    if separator in payload and separator not in separators:
+      separators.append(separator)
+  if not separators:
+    separators = [";"]
+
+  previous_os = settings.TARGET_OS
+  settings.TARGET_OS = settings.OS.WINDOWS if shell_os == "Windows" else settings.OS.UNIX
+  try:
+    for separator in separators:
+      if settings.TARGET_OS == settings.OS.WINDOWS:
+        delayed_payload = payloads.windows_condition_check(separator, "1-1", 0, delay)
+        control_payload = payloads.windows_condition_check(separator, "1-2", 0, delay)
+      else:
+        delayed_payload = payloads.condition_check(separator, "1 -eq 1", delay, http_request_method)
+        control_payload = payloads.condition_check(separator, "1 -eq 2", delay, http_request_method)
+      if not delayed_payload or not control_payload:
+        continue
+
+      evidence = detection.verify_time_based_blind(
+        lambda: timed_heuristic_answer(url, http_request_method, check_parameter,
+                                       control_payload, whitespace, place)[0],
+        lambda: timed_heuristic_answer(url, http_request_method, check_parameter,
+                                       delayed_payload, whitespace, place)[0],
+        delay, attempts=attempts)
+      if settings.VERBOSITY_LEVEL != 0:
+        debug_msg = "Time-based check on separator '" + str(separator) + "': " + str(evidence.reason) + "."
+        settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
+      if evidence.confirmed:
+        return True
+  finally:
+    settings.TARGET_OS = previous_os
+  return False
 
 def command_injection_heuristic_basic(url, http_request_method, check_parameter, place):
   check_parameter = check_parameter.lstrip().rstrip()
@@ -358,43 +491,88 @@ def command_injection_heuristic_basic(url, http_request_method, check_parameter,
     for whitespace in settings.WHITESPACES:
       if not settings.IDENTIFIED_COMMAND_INJECTION:
         for payload, shell_os in shaped:
-          response, url = heuristic_request(url, http_request_method, check_parameter, payload, whitespace, place)
-          if type(response) is not bool and response is not None:
-            html_data = checks.process_page_content(response, action="decode")
-            match = re.search(settings.BASIC_COMMAND_INJECTION_RESULT, html_data)
-            if match:
-              settings.IDENTIFIED_COMMAND_INJECTION = True
-              checks.note_printer_that_answered(html_data)
-              # Asked while the payload that answered is still in hand, and before a technique has
-              # spent a single request at the slow value's price.
-              url = probe_skip_testable_value_early(url, http_request_method, check_parameter, payload, whitespace, place)
-              # The token the rest of the code compares against, and then what was really shown.
-              checks.set_target_os(shell_os)
-              # A payload that ran answers what the banner could not, so nothing need be asked.
-              settings.OS_IDENTIFICATION_PENDING = False
-              announce_heuristic_finding("identified command shell type: '" + checks.target_shell_label() + "'")
-              # A shell answering here says nothing about whether a string is also evaluated as
-              # code, so it settles the question only where the code injection sink was not asked
-              # for by name - otherwise every technique carrying it would skip itself, and the run
-              # would report "not injectable" without having sent one of their payloads.
-              if not menu.options.eval_sink:
-                settings.SKIP_CODE_INJECTIONS = True
-              elif not settings.COMMAND_SUGGESTED:
-                settings.COMMAND_SUGGESTED = True
-                """
-                '--eval' names code injection, and naming it is what stops command injection from
-                being tested at all - so a shell answering here would otherwise be found, reported
-                and then left behind, with the run going on to look only for what it was told to.
+          answers, attempts = [], heuristic_detection_attempts()
+          for _attempt in range(attempts):
+            page, url = heuristic_answer(url, http_request_method, check_parameter,
+                                         payload, whitespace, place)
+            if page is not None:
+              answers.append(page)
 
-                The option the user gave still wins by default: what is offered is dropping it,
-                and a run that is not being watched keeps the option it was started with.
-                """
-                message = "The target answers as a command shell, so it is open to command injection as well. "
-                message += "Do you want to test for that instead (i.e. without the '--eval' option)? [y/N] "
-                if common.read_input(message, default="N", check_batch=True) in settings.CHOICE_YES:
-                  menu.options.eval_sink = False
-                  settings.SKIP_CODE_INJECTIONS = True
-              break
+          control_page = None
+          if any(carries_result_marker(page) for page in answers):
+            control_payload = heuristic_control_payload(payload)
+            if control_payload:
+              control_answer = detection.retry_call(
+                lambda: heuristic_answer(url, http_request_method, check_parameter,
+                                         control_payload, whitespace, place),
+                attempts=attempts,
+                accept=lambda answer: answer is not None and answer[0] is not None)
+              if control_answer:
+                control_page, url = control_answer
+
+          baseline = checks.comparable_page(settings.ORIGINAL_PAGE or "")
+          control_page = (checks.comparable_page(control_page)
+                          if control_page is not None else None)
+          evidence = [detection.score_response_difference(
+            baseline, checks.comparable_page(page), control_page,
+            settings.BASIC_COMMAND_INJECTION_MARKERS) for page in answers]
+          hits = [candidate for candidate in evidence if candidate.strong]
+          needed = len(answers) // 2 + 1 if answers else 1
+
+          if settings.VERBOSITY_LEVEL != 0 and evidence:
+            debug_msg = "Heuristic response evidence: score " + str(round(evidence[0].score, 1))
+            debug_msg += " (threshold " + str(settings.DETECTION_SCORE_THRESHOLD) + ", "
+            debug_msg += str(len(hits)) + "/" + str(needed) + " confirming answers)."
+            settings.print_data_to_stdout(settings.print_debug_msg(debug_msg))
+
+          if len(hits) >= needed:
+            confirmed = True
+          elif menu.options.smart or any(candidate.score >= settings.DETECTION_SUSPICIOUS_SCORE
+                                         for candidate in evidence):
+            confirmed = time_based_heuristic_basic(url, http_request_method, check_parameter,
+                                                   payload, whitespace, place, shell_os)
+          else:
+            confirmed = False
+
+          if confirmed:
+            if hits:
+              answered_page = next((page for page, candidate in zip(answers, evidence)
+                                    if candidate.strong), "")
+              checks.note_printer_that_answered(answered_page)
+            settings.IDENTIFIED_COMMAND_INJECTION = True
+            # Asked while the payload that answered is still in hand, and before a technique has
+            # spent a single request at the slow value's price.
+            url = probe_skip_testable_value_early(url, http_request_method, check_parameter, payload, whitespace, place)
+            # The token the rest of the code compares against, and then what was really shown.
+            checks.set_target_os(shell_os)
+            # A payload that ran answers what the banner could not, so nothing need be asked.
+            settings.OS_IDENTIFICATION_PENDING = False
+            if hits:
+              announce_heuristic_finding("identified command shell type: '" + checks.target_shell_label() + "'")
+            else:
+              announce_heuristic_finding("confirmed by a time-based delay")
+            # A shell answering here says nothing about whether a string is also evaluated as
+            # code, so it settles the question only where the code injection sink was not asked
+            # for by name - otherwise every technique carrying it would skip itself, and the run
+            # would report "not injectable" without having sent one of their payloads.
+            if not menu.options.eval_sink:
+              settings.SKIP_CODE_INJECTIONS = True
+            elif not settings.COMMAND_SUGGESTED:
+              settings.COMMAND_SUGGESTED = True
+              """
+              '--eval' names code injection, and naming it is what stops command injection from
+              being tested at all - so a shell answering here would otherwise be found, reported
+              and then left behind, with the run going on to look only for what it was told to.
+
+              The option the user gave still wins by default: what is offered is dropping it,
+              and a run that is not being watched keeps the option it was started with.
+              """
+              message = "The target answers as a command shell, so it is open to command injection as well. "
+              message += "Do you want to test for that instead (i.e. without the '--eval' option)? [y/N] "
+              if common.read_input(message, default="N", check_batch=True) in settings.CHOICE_YES:
+                menu.options.eval_sink = False
+                settings.SKIP_CODE_INJECTIONS = True
+            break
 
     settings.RESULTS_BASED_STATE = False
     return url

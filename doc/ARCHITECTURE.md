@@ -152,6 +152,11 @@ content type, because a percent-encoded payload inside a JSON string is not a pa
 technique's business: the heuristics, the false-positive re-check, page comparison and dynamic-region
 marking, protection handling, option validation, and the wording of what gets reported.
 
+`src/core/controller/detection.py` holds the heuristic's numeric evidence: how different a response is
+from the baseline and from a control answer, and whether a pair of timed answers reproduces the delay
+that was asked for. Neither reading decides anything on its own; both are spent before the normal
+technique sweep confirms the point.
+
 For one parameter the order is: whether it is dynamic at all (`--skip-static`), whether it is worth
 the full set (the heuristic), then technique after technique until one confirms - and then the
 finding is re-proved before anybody is told about it.

@@ -1,4 +1,6 @@
 ## Version 4.2 (TBA)
+* Improved: Command-injection heuristics now score the answer against the baseline page and a control request, strip reflected payloads before reading it, retry inconclusive requests, and can confirm a suspicious or blind point with paired time-delay checks.
+* Added: An offline HTTP testbed covering reflection-only, executable, blind and transiently failing endpoints, with tests for the detection scorer, timing verifier and retry path.
 * Revised: Tamper script `printf2echo.py` now switches every payload, both detection and exploitation, from `printf` to `echo`, for a target that refuses `printf` by name.
 * Fixed: Command output carrying a backslash (e.g. "C:\temp\new") or starting with "-n", which came back altered because payloads printed it with "echo".
 * Added: New tamper script `phpregreplace.py`, carrying a payload through the replacement string of a PHP sink evaluated by `preg_replace()`'s "e" modifier.

@@ -714,6 +714,31 @@ WAF_IDENTIFIED = None
 class HEURISTIC_TEST(object):
   POSITIVE = True
 
+"""
+How much response evidence is worth calling a detection, before any technique has confirmed it.
+
+The score is put together from the random result markers, how far the answer moved from the
+baseline page, and how unlike the control answer it is. A page that echoes the payload scores
+nothing once the payload is taken back out; a command's result keeps its markers and stands apart.
+"""
+DETECTION_SCORE_THRESHOLD = 60.0
+# Below this, the page moved by no more than its own furniture, and a delay probe would be spent
+# on a parameter that has not shown anything. Above it, timing is worth asking as a second opinion.
+DETECTION_SUSPICIOUS_SCORE = 5.0
+
+"""
+How a time-based verification reads a paired answer.
+
+The delayed request has to be later than the ordinary one by this share of the delay asked for,
+and it has to do so on this many usable pairs. Both are small because the paired reading already
+removes the target's own pace; what it is guarding against is one lucky late request.
+"""
+DETECTION_TIME_BLIND_RATIO = 0.6
+DETECTION_TIME_BLIND_HITS = 2
+# A verification delay is a proof, not a retrieval: a few seconds clear the target's own pace
+# without spending the user's configured delay on every heuristic that has to be re-checked.
+DETECTION_TIME_BLIND_DELAY = 3
+
 # Basic command-injection checks, built fresh per parameter with random values and markers.
 BASIC_STRING = ""
 BASIC_COMMAND_INJECTION_PAYLOADS = []
@@ -721,6 +746,9 @@ ALTER_INTERPRETER_BASIC_COMMAND_INJECTION_PAYLOADS = []
 BASIC_COMMAND_INJECTION_RESULT = ""
 # The same, split by the name each repetition printed with, so the one that answered is known.
 BASIC_COMMAND_INJECTION_RESULTS = {}
+BASIC_COMMAND_INJECTION_MARKERS = []
+BASIC_COMMAND_INJECTION_EXPECTED = ""
+BASIC_COMMAND_INJECTION_CONTROL_EXPECTED = ""
 # What the target still printed with, where only one of the two names came back.
 PRINTER_ANSWERED = None
 IDENTIFIED_COMMAND_INJECTION = False
