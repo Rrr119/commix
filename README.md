@@ -34,7 +34,7 @@ You can visit the [collection of screenshots](https://github.com/commixproject/c
 ## Features
 
 * **Four injection techniques** - results-based, boolean-based, time-based and file-based, chosen with `--technique` or by the type they report with `--type` - see [techniques](https://github.com/commixproject/commix/wiki/Techniques) for what each one asks of a target.
-* **Out-of-band, when nothing comes back at all** - `--oob` proves execution and carries the command's output over HTTP/S or DNS, reaching the server through whichever client the target happens to have - see [out-of-band client](https://github.com/commixproject/commix/wiki/Usage#out-of-band-client) for the ones it tries and how to pin one.
+* **Out-of-band, when nothing comes back at all** - `--oob` proves execution and carries the command's output over HTTP/S or DNS, reaching the server through whichever client the target happens to have. It runs alone or after an explicit `--technique`/`--type` selection as a blind fallback - see [out-of-band client](https://github.com/commixproject/commix/wiki/Usage#out-of-band-client) for the ones it tries and how to pin one.
 * **Code injection** - [`--eval`](https://github.com/commixproject/commix/wiki/Usage#test-for-code-injection) tests what a target evaluates as code, in `PHP`, `Python`, `Ruby`, `JavaScript`, `PowerShell`, `Perl` or `Lua`, over those same techniques.
 * **Wherever input lands** - GET/POST parameters, [HTTP headers and cookies](https://github.com/commixproject/commix/wiki/Usage#request-options), JSON/XML/GraphQL bodies, plus the `shellshock` module for CGI targets.
 * **From proof to shell** - [`--os-shell`](https://github.com/commixproject/commix/wiki/Getting-shells), built-in `reverse_tcp` and `bind_tcp` upgradeable to a full PTY, file transfer, Windows registry read/write, and enumeration through to password hashes with a dictionary attack offered against them.
@@ -69,6 +69,10 @@ Prove execution out-of-band, where the response carries nothing back :
 
     $ python3 commix.py --url="http://commix-testbed/scenarios/regular/POST/blind.php" --data="addr=127.0.0.1" --oob
 
+Keep the faster page checks and add out-of-band as the blind fallback :
+
+    $ python3 commix.py --url="http://commix-testbed/scenarios/regular/GET/classic.php?addr=127.0.0.1" --technique="bt" --oob
+
 > [!NOTE]
 > The client is picked by what the target has, so a host stripped of the usual HTTP clients is still
 > in reach - pin one with `--oob-transport` where its egress is already known. By default `--oob` uses
@@ -76,6 +80,9 @@ Prove execution out-of-band, where the response carries nothing back :
 > network; point `--oob-server` at a self-hosted instance to keep it in-house. For a detailed guide,
 > refer to the
 > [**`out-of-band-oob-channel`**](https://github.com/commixproject/commix/wiki/Techniques#out-of-band-oob-channel) wiki page.
+
+The offline three-lab blind/out-of-band comparison and its reproduction command are in
+[`doc/BLIND-DETECTION.md`](doc/BLIND-DETECTION.md).
 
 Scan a list of targets unattended and write the results to a file :
 

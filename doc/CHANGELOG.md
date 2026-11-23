@@ -1,4 +1,6 @@
 ## Version 4.2 (TBA)
+* Added: `--oob` is additive beside an explicit `--technique` or `--type` selection, running after the named techniques as a blind fallback; on its own it still selects only out-of-band.
+* Added: An offline three-lab benchmark comparing boolean-based, time-based, DNS out-of-band and HTTP out-of-band blind detection rates, with GET/POST scan-mode coverage and end-to-end DNS/HTTP output transport tests.
 * Revised: Tamper script `printf2echo.py` now switches every payload, both detection and exploitation, from `printf` to `echo`, for a target that refuses `printf` by name.
 * Fixed: Command output carrying a backslash (e.g. "C:\temp\new") or starting with "-n", which came back altered because payloads printed it with "echo".
 * Added: New tamper script `phpregreplace.py`, carrying a payload through the replacement string of a PHP sink evaluated by `preg_replace()`'s "e" modifier.

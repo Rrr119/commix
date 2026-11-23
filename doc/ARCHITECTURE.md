@@ -67,11 +67,13 @@ understand any of them:
 | time-based | `techniques/time_based/` | `--technique=t` | how long the answer took |
 | file-based | `techniques/file_based/` | `--technique=f` | a file under the web root |
 | tempfile-based | `techniques/tempfile_based/` | under `f`, where the web root cannot be written | a file in a temporary directory |
-| out-of-band | `techniques/oob/` | `--oob` | a request the target makes to a server you control |
+| out-of-band | `techniques/oob/` | `--oob` (alone or after `--technique`) | a request the target makes to a server you control |
 
 `AVAILABLE_TECHNIQUES` is `r`, `b`, `t`, `f` and nothing else. Out-of-band is kept out of it on
 purpose: it is a switch, so that the modules can use it too, and those never go through
-`--technique`. The evaluator composes with the four letters rather than replacing them -
+`--technique`. Alone, the switch selects only out-of-band; beside an explicit `--technique` or
+`--type`, it is additive and runs after the named techniques as a blind fallback. The evaluator
+composes with the four letters rather than replacing them -
 `EVAL_TECHNIQUE_LETTER` is what it went by before `--eval` existed, kept so that stored sessions
 still read, and `c` is what results-based was called before it was renamed.
 
@@ -262,7 +264,9 @@ install, no network, and no payload leaving the machine. It pins what reading th
 catch: that no payload and no tamper script carries an operator other than the separator under
 test, that a script declared for one shell answers for the other, that a rewrite leaves a command's
 arguments as they were given, that every grammar declares what the techniques ask it for, and that
-the word lists hold no repeat. Run it from the root with
+the word lists hold no repeat. `tests/test_blind_detection.py` adds three capability-isolated labs
+for boolean, delay and out-of-band evidence; the resulting rates are recorded in
+`doc/BLIND-DETECTION.md`. Run it from the root with
 `python -m unittest discover -s tests -t .`.
 
 A sweep that finds nothing must not pass, so each one counts what it swept before it reads it -

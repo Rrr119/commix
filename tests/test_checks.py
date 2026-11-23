@@ -1340,7 +1340,9 @@ class TheOutOfBandTechniqueIsAskedForOnItsOwn(unittest.TestCase):
     self.assertIn("settings.OOB_TECHNIQUE_LETTER",
                   inspect.getsource(controller.oob_command_injection_technique))
     self.assertIn("menu.options.tech = settings.OOB_TECHNIQUE_LETTER",
-                  io.open(inspect.getsourcefile(main), encoding="utf-8").read())
+                  inspect.getsource(checks.settle_out_of_band_selection))
+    with io.open(inspect.getsourcefile(main), encoding="utf-8") as handle:
+      self.assertIn("checks.settle_out_of_band_selection()", handle.read())
 
   def test_the_switch_alone_says_whether_it_runs(self):
     menu.options.tech = ""
@@ -1357,6 +1359,53 @@ class TheOutOfBandTechniqueIsAskedForOnItsOwn(unittest.TestCase):
     self.assertTrue(checks.technique_selected(settings.OOB_TECHNIQUE_LETTER))
     for letter in settings.AVAILABLE_TECHNIQUES:
       self.assertFalse(checks.technique_selected(letter), letter + " ran alongside out-of-band")
+
+
+class TheOutOfBandTechniqueCanFollowAnExplicitSelection(unittest.TestCase):
+  """
+  '--oob' alone still selects only the out-of-band channel. Beside '--technique' or '--type' it is
+  additive, so a blind fallback can be asked for without giving up the techniques that read the
+  page first - the switch used to refuse the combination outright.
+  """
+  def setUp(self):
+    self._state = (menu.options.oob, menu.options.tech, menu.options.skip_tech,
+                   settings.USER_APPLIED_TECHNIQUE)
+    menu.options.oob = True
+    menu.options.skip_tech = None
+
+  def tearDown(self):
+    (menu.options.oob, menu.options.tech, menu.options.skip_tech,
+     settings.USER_APPLIED_TECHNIQUE) = self._state
+
+  def test_alone_it_still_writes_down_only_its_own_letter(self):
+    menu.options.tech = "rbtf"
+    settings.USER_APPLIED_TECHNIQUE = False
+    checks.settle_out_of_band_selection()
+    self.assertEqual(settings.OOB_TECHNIQUE_LETTER, menu.options.tech)
+
+  def test_an_explicit_selection_is_kept_and_oob_still_runs(self):
+    menu.options.tech = "rt"
+    settings.USER_APPLIED_TECHNIQUE = True
+    checks.settle_out_of_band_selection()
+    self.assertEqual("rt", menu.options.tech)
+    self.assertTrue(checks.technique_selected("r"))
+    self.assertTrue(checks.technique_selected("t"))
+    self.assertTrue(checks.technique_selected(settings.OOB_TECHNIQUE_LETTER))
+
+  def test_a_skipped_technique_list_is_kept_the_same_way(self):
+    menu.options.tech = "btf"
+    menu.options.skip_tech = "r"
+    settings.USER_APPLIED_TECHNIQUE = False
+    checks.settle_out_of_band_selection()
+    self.assertEqual("btf", menu.options.tech)
+    self.assertTrue(checks.technique_selected(settings.OOB_TECHNIQUE_LETTER))
+
+  def test_without_the_switch_nothing_is_changed(self):
+    menu.options.oob = False
+    menu.options.tech = "r"
+    settings.USER_APPLIED_TECHNIQUE = True
+    self.assertFalse(checks.settle_out_of_band_selection())
+    self.assertEqual("r", menu.options.tech)
 
 class TheHeuristicProbeIsSentTheWayTheTestsAre(unittest.TestCase):
   """

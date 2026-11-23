@@ -728,11 +728,6 @@ def main(filename, url, http_request_method):
         warn_msg += "chosen separately with '--technique', so only code injection is tested."
         settings.print_data_to_stdout(settings.print_warning_msg(warn_msg))
       menu.options.tech = "".join(settings.EVAL_CAPABLE_TECHNIQUES)
-    if menu.options.oob and settings.USER_APPLIED_TECHNIQUE:
-      err_msg = "The switch '--oob' selects the out-of-band technique on its own, so it cannot be "
-      err_msg += "combined with '--technique'."
-      settings.print_data_to_stdout(settings.print_critical_msg(err_msg))
-      raise SystemExit(settings.EXIT_FAILURE)
     # Check for skipping injection techniques.
     if menu.options.skip_tech:
       # Convert injection technique(s) to lowercase
@@ -762,9 +757,9 @@ def main(filename, url, http_request_method):
     which is the one that asks for all of them.
     """
 
-    # Named by the constant the technique's letter lives in, so the letter is written once.
-    if menu.options.oob:
-      menu.options.tech = settings.OOB_TECHNIQUE_LETTER
+    # Named by the constant the technique's letter lives in, so the letter is written once. With an
+    # explicit selection the switch is additive, and that list is left as the user gave it.
+    checks.settle_out_of_band_selection()
 
     # Check the file-destination
     if menu.options.file_write is not None and not menu.options.file_dest:

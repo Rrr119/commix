@@ -858,7 +858,7 @@ injection.add_option("--oob",
                 action="store_true",
                 dest="oob",
                 default=False,
-                help="Test over an out-of-band (OAST) channel (HTTP(S) or DNS, see '--oob-transport').")
+                help="Test over an out-of-band (OAST) channel (HTTP(S) or DNS, see '--oob-transport'); additive beside '--technique'/'--type'.")
 
 injection.add_option("--oob-server",
                 action="store",

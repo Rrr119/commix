@@ -806,9 +806,9 @@ being tested, chosen with '--eval', and by which technique, chosen with '--techn
 runs when its letter was asked for and it reaches the sink in hand, so the two compose.
 
 Out-of-band is not one of the techniques '--technique' names - its letter is not in
-settings.AVAILABLE_TECHNIQUES, so a user can never ask for it there, and naming a technique
-alongside '--oob' is refused rather than merged. The switch selects the out-of-band technique on
-its own, which leaves it the only one this run is testing.
+settings.AVAILABLE_TECHNIQUES, so a user can never ask for it there. The switch can be used on its
+own, which leaves it the only technique this run is testing, or alongside an explicit selection,
+which adds it after the techniques that were asked for.
 """
 def technique_selected(tech_letter, eval_sink=False):
   if tech_letter == settings.OOB_TECHNIQUE_LETTER:
@@ -816,6 +816,21 @@ def technique_selected(tech_letter, eval_sink=False):
   if bool(menu.options.eval_sink) != bool(eval_sink):
     return False
   return len(menu.options.tech) == 0 or tech_letter in menu.options.tech
+
+"""
+Settle what '--oob' means beside the rest of the technique selection.
+
+On its own it still selects only the out-of-band channel. Given with '--technique' or '--type', it
+is additive: the named techniques run first and out-of-band follows as the blind fallback. The
+letter is written down only in the switch-alone case, so an explicit selection is never replaced
+by it.
+"""
+def settle_out_of_band_selection():
+  if not menu.options.oob:
+    return False
+  if not settings.USER_APPLIED_TECHNIQUE and not menu.options.skip_tech:
+    menu.options.tech = settings.OOB_TECHNIQUE_LETTER
+  return True
 
 """
 Whether this run is working through several targets rather than the one it was pointed at.
